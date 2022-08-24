@@ -39,12 +39,7 @@ import org.apache.kafka.connect.sink.SinkTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 
 public class DynamoDbSinkTask extends SinkTask {
@@ -127,11 +122,29 @@ public class DynamoDbSinkTask extends SinkTask {
     }
 
     private Map<String, List<WriteRequest>> toWritesByTable(Iterator<SinkRecord> recordIterator) {
-        final Map<String, List<WriteRequest>> writesByTable = new HashMap<>();
-        for (int count = 0; recordIterator.hasNext() && count < config.batchSize; count++) {
+        final Map<String, Map<Object, WriteRequest>> mapsByTable = new HashMap<>();
+        int count = 0;
+        while (recordIterator.hasNext() && count < config.batchSize) {
             final SinkRecord record = recordIterator.next();
             final WriteRequest writeRequest = new WriteRequest(toPutRequest(record));
-            writesByTable.computeIfAbsent(tableName(record), k -> new ArrayList<>(config.batchSize)).add(writeRequest);
+            Map<Object, WriteRequest> writesByKey = mapsByTable.get(tableName(record));
+            if (writesByKey == null){
+                Map<Object, WriteRequest> newMap = new HashMap<>(config.batchSize);
+                newMap.put(record.key(), writeRequest);
+                mapsByTable.put(tableName(record), newMap);
+                count++;
+                continue;
+            }
+
+            if (!writesByKey.containsKey(record.key())){
+                count++;
+            }
+            writesByKey.put(record.key(), writeRequest);
+        }
+
+        final Map<String, List<WriteRequest>> writesByTable = new HashMap<>();
+        for (Map.Entry<String, Map<Object, WriteRequest>> kvp : mapsByTable.entrySet()) {
+            writesByTable.put(kvp.getKey(), new ArrayList<>(kvp.getValue().values()));
         }
         return writesByTable;
     }
